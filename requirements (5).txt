@@ -1,0 +1,28 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+groq>=0.9.0
+
+# ── Embeddings & Vector Store ─────────────────────────────────────────────────
+# Pin sentence-transformers to avoid pulling transformers>=4.40 which imports
+# zoedepth and requires torchvision even when unused
+sentence-transformers>=2.7.0,<3.0.0
+transformers>=4.36.0,<4.40.0     # 4.40+ triggers zoedepth/torchvision import bug
+faiss-cpu>=1.7.4
+numpy>=1.24.0,<2.0.0             # numpy 2.x breaks several torch/faiss builds
+
+# ── PyTorch (CPU only — no GPU needed for embeddings) ─────────────────────────
+# torchvision must match torch version exactly; install CPU builds to keep it light
+torch>=2.0.0
+torchvision>=0.15.0              # Required by transformers' model registry at import time
+
+# ── Document Parsing ──────────────────────────────────────────────────────────
+pdfplumber>=0.11.0               # PDF text extraction (primary)
+pymupdf>=1.24.0                  # PDF fallback (fitz)
+python-docx>=1.1.0               # DOCX parsing
+
+# ── Web Scraping ──────────────────────────────────────────────────────────────
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# ── Tavily Web Search ─────────────────────────────────────────────────────────
+# No separate package needed — uses requests directly
