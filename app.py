@@ -351,38 +351,16 @@ for msg in st.session_state.messages:
 # ── Chat input bar: single components.html with + mic, no hidden st widgets ──
 # Strategy: JS posts message text directly into st.chat_input via parent DOM.
 # Files/voice use st.session_state via a real Streamlit rerun trigger:
-# we write to a SINGLE st.text_input that is truly hidden via JS after render.
+# ── Input bus via query_params (no visible widget at all) ────────────────────
+import json as _j, base64 as _b
 
-# Step 1 — render the single helper input, THEN hide it via JS (not CSS)
-# because CSS :has() is unreliable in Streamlit's sandboxed iframes
-_raw = st.text_input("msg_bus", key="msg_bus", label_visibility="collapsed")
+_qp  = st.query_params
+_raw = _qp.get("bus", "")
 
-# Step 2 — immediately after render, nuke it from the DOM via injected JS
-st.markdown("""
-<script>
-(function() {
-    function hideInputs() {
-        // Find all stTextInput wrappers that contain our bus input
-        document.querySelectorAll('[data-testid="stTextInput"]').forEach(wrapper => {
-            const inp = wrapper.querySelector('input');
-            if (inp && (inp.id === 'msg_bus' || inp.getAttribute('aria-label') === 'msg_bus')) {
-                wrapper.style.cssText = 'display:none!important;height:0!important;margin:0!important;padding:0!important;';
-            }
-        });
-    }
-    // Run immediately and after a short delay (Streamlit may not have rendered yet)
-    hideInputs();
-    setTimeout(hideInputs, 100);
-    setTimeout(hideInputs, 500);
-})();
-</script>
-""", unsafe_allow_html=True)
-
-# Step 3 — process whatever landed in the bus
 if _raw and _raw != st.session_state.get("_bus_last", ""):
     st.session_state["_bus_last"] = _raw
+    _qp.clear()                          # remove from URL immediately
     if _raw.startswith("FILE:"):
-        import json as _j, base64 as _b
         try:
             for fd in _j.loads(_raw[5:]):
                 fname = fd["name"]
@@ -393,7 +371,7 @@ if _raw and _raw != st.session_state.get("_bus_last", ""):
                 if ext in ("pdf", "docx", "doc", "txt"):
                     if st.session_state.rag:
                         res = st.session_state.rag.add_document(fb, fname)
-                        st.session_state.uploaded_docs.append({"name": fname, "chunks": res["chunks"], "size_kb": round(len(fb)/1024,1)})
+                        st.session_state.uploaded_docs.append({"name": fname, "chunks": res["chunks"], "size_kb": round(len(fb)/1024, 1)})
                         st.session_state.sources_loaded.append({"type": "doc", "src": fname})
                         st.toast(f"✓ {fname} indexed", icon="📄")
                 else:
@@ -406,10 +384,9 @@ if _raw and _raw != st.session_state.get("_bus_last", ""):
         st.session_state["_pending_voice"] = _raw[6:]
         st.rerun()
 
-# Step 4 — the actual chat input (sticky bottom bar)
+# ── Chat input ────────────────────────────────────────────────────────────────
 prompt = st.chat_input("Message…")
 
-# Pick up voice
 if not prompt and st.session_state.get("_pending_voice"):
     prompt = st.session_state.pop("_pending_voice")
 
@@ -497,16 +474,12 @@ function showToast(msg, dur=2500) {
 }
 
 function sendToBus(value) {
-    // Find the msg_bus input in the parent page and trigger Streamlit
-    const inputs = Array.from(window.parent.document.querySelectorAll('input'));
-    const bus = inputs.find(i => i.id === 'msg_bus' || i.getAttribute('aria-label') === 'msg_bus');
-    if (!bus) { showToast('⚠ Bus not ready'); return false; }
-    const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-    setter.call(bus, value);
-    bus.dispatchEvent(new Event('input',  { bubbles: true }));
-    bus.dispatchEvent(new Event('change', { bubbles: true }));
-    bus.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, bubbles:true }));
-    bus.dispatchEvent(new KeyboardEvent('keyup',   { key:'Enter', keyCode:13, bubbles:true }));
+    // Set ?bus=VALUE in the parent URL — Streamlit reads query_params on rerun
+    const url = new URL(window.parent.location.href);
+    url.searchParams.set('bus', value);
+    window.parent.history.replaceState({}, '', url);
+    // Trigger Streamlit rerun by dispatching a popstate event
+    window.parent.dispatchEvent(new Event('popstate'));
     return true;
 }
 
